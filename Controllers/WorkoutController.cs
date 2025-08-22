@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using WorkoutApi.Data;
+using WorkoutApi.Dtos;
 using WorkoutApi.Models;
 
 namespace WorkoutApi.Controllers
@@ -22,77 +23,113 @@ namespace WorkoutApi.Controllers
             _context = context; // Lagras i _context för att användas i metoderna
         }
 
-// METODER
+        // METODER
         // GET: api/Workout
         [HttpGet] // Hämtar alla träningspass
-        public async Task<ActionResult<IEnumerable<Workout>>> GetWorkouts()
+        // Metod = GetWorkouts, returnerar en lista av WorkoutDto
+        public async Task<ActionResult<IEnumerable<WorkoutDto>>> GetWorkouts()
         {
-            return await _context.Workouts.ToListAsync(); // använder databasanslutningen, koller efter modellen, returnerar allt som lista
+            // Kontrollera att det finns träningspass
+            if (_context.Workouts == null)
+            {
+                return NotFound(); // 404 not found om träningspass inte finns
+            }
+            // Hämta alla träningspass från databasen
+            return await _context.Workouts
+                .Include(w => w.TrainingType) // Inkludera träningstyp
+                .Select(w => new WorkoutDto // Konvertera workout-modell till workoutDto
+                {
+                    Id = w.Id,
+                    Name = w.Name,
+                    Description = w.Description,
+                    IsCompleted = w.IsCompleted,
+                    CreatedAt = w.CreatedAt,
+                    TrainingTypeId = w.TrainingTypeId,
+                    TrainingTypeName = w.TrainingType != null ? w.TrainingType.TrainingTypeName : null
+                })
+                .ToListAsync();
         }
 
         // GET: api/Workout/5
         [HttpGet("{id:int}")] // Hämta träningspass baserat på id
-        public async Task<ActionResult<Workout>> GetWorkout(int id) // Ta id som argument
+        public async Task<ActionResult<WorkoutDto>> GetWorkout(int id) // Ta id som argument
         {
-            var workout = await _context.Workouts.FindAsync(id); // Kör FindAsync, kollar "finns denna i databasen?", returnerar om den finns
+            // Hitta träningspass i databasen och inkludera träningstyp
+            var workout = await _context.Workouts
+                .Include(w => w.TrainingType)
+                .Select(w => new WorkoutDto
+                {
+                    Id = w.Id,
+                    Name = w.Name,
+                    Description = w.Description,
+                    IsCompleted = w.IsCompleted,
+                    CreatedAt = w.CreatedAt,
+                    TrainingTypeId = w.TrainingTypeId,
+                    TrainingTypeName = w.TrainingType != null ? w.TrainingType.TrainingTypeName : null
+                })
+                .FirstOrDefaultAsync(w => w.Id == id);
 
             if (workout == null)
             {
                 return NotFound(); // 404 not found om träningspass inte finns
             }
 
-            return workout;
-        }
-
-        // GET: api/workout/trainingtypes
-        [HttpGet("trainingtypes")]
-        public ActionResult<IEnumerable<string>> GetTrainingTypes()
-        {
-            var types = Enum.GetNames(typeof(TrainingType));
-            return Ok(types);
+            return workout; // Returnera träningspass
         }
 
         // PUT: api/Workout/5
         // Uppdatera träningspass baserat på id
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutWorkout(int id, Workout workout) 
-        // kontrollera om inmatat id i url är samma som i anropet, annars returnera bad request
+        public async Task<IActionResult> PutWorkout(int id, WorkoutUpdateDto dto) 
+        
         {
-            if (id != workout.Id)
+            var workout = await _context.Workouts.FindAsync(id); // Hitta träningspass att uppdatera
+            if (workout == null)
             {
-                return BadRequest();
+                return NotFound(); // Returnera not found om inget pass hittas
             }
 
-            _context.Entry(workout).State = EntityState.Modified; // Skapa kösystem och behandla transaktioner i kö (asynkront), så inte man råkar uppdatera något som redan blivit uppdaterat sekunden tidigare
+           workout.Name = dto.Name;
+           workout.Description = dto.Description;
+           workout.IsCompleted = dto.IsCompleted;
+           workout.TrainingTypeId = dto.TrainingTypeId;
 
-            try // Uppdatera
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!WorkoutExists(id)) // om vi försöker uppdatera ett träningspass som inte finns
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    throw;
-                }
-            }
+           await _context.SaveChangesAsync(); // Spara ändringarna
 
-            return NoContent(); // Returnerar NoContent
+           return NoContent();
         }
 
         // POST: api/Workout
         // Lägg till ny träning
         [HttpPost]
-        public async Task<ActionResult<Workout>> PostWorkout(Workout workout)
+        public async Task<ActionResult<WorkoutDto>> PostWorkout(WorkoutCreateDto dto)
         {
+            var workout = new Workout
+
+            {
+                Name = dto.Name,
+                Description = dto.Description,
+                IsCompleted = dto.IsCompleted,
+                CreatedAt = DateTime.Now,
+                TrainingTypeId = dto.TrainingTypeId
+            };
             _context.Workouts.Add(workout); // Använder metoden Add
             await _context.SaveChangesAsync(); // Spara ändringarna
 
-            return CreatedAtAction("GetWorkout", new { id = workout.Id }, workout);
+            await _context.Entry(workout).Reference(w => w.TrainingType).LoadAsync(); // Ladda referensen till TrainingType
+
+            var workoutDto = new WorkoutDto
+            {
+                Id = workout.Id,
+                Name = workout.Name,
+                Description = workout.Description,
+                IsCompleted = workout.IsCompleted,
+                CreatedAt = workout.CreatedAt,
+                TrainingTypeId = workout.TrainingTypeId,
+                TrainingTypeName = workout.TrainingType?.TrainingTypeName
+            };
+
+            return CreatedAtAction(nameof(GetWorkout), new { id = workout.Id }, workoutDto);
         }
 
         // DELETE: api/Workout/5

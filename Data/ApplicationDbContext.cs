@@ -11,6 +11,7 @@ public class ApplicationDbContext : DbContext
     {
     }
 
-    // Tabell i databas
-    public DbSet<Workout> Workouts { get; set; }
+    // Tabeller i databas
+    public DbSet<Workout> Workouts { get; set; } // Tabell för träningspass
+    public DbSet<TrainingType> TrainingTypes { get; set; } // Tabell för träningstyper
 }
